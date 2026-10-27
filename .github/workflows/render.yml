@@ -2,7 +2,9 @@ name: Render featured images
 on:
   push:
     branches: [main]
-    paths: ["render/**.json"]
+    paths: ["render/**.json", "tools/specs_url.txt"]
+  schedule:
+    - cron: "*/10 1-12 * * 1-5"
   workflow_dispatch:
 permissions:
   contents: write
@@ -19,6 +21,7 @@ jobs:
           python-version: "3.12"
       - run: pip install playwright==1.47.0 && python -m playwright install --with-deps chromium
       - run: python tools/render_specs.py
+      - run: python tools/render_from_sheet.py
       - name: Commit images
         run: |
           git config user.name "sky-image-bot"
