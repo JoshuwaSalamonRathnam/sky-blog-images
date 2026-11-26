@@ -5,6 +5,7 @@ import asyncio, csv, io, json, pathlib, re, sys, urllib.request
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 from build_post import build, render
+import build_thumb
 url = (ROOT / "tools" / "specs_url.txt").read_text().strip() if (ROOT / "tools" / "specs_url.txt").exists() else ""
 async def main():
     if not url.startswith("https://"):
@@ -14,14 +15,19 @@ async def main():
     for r in rows:
         if len(r) < 2 or not r[0].strip():
             continue
-        m = re.match(r"(\d{4})-(\d{2})-([a-z0-9-]+-v\d+)$", r[0].strip())
+        m = re.match(r"(\d{4})-(\d{2})-([a-z0-9-]+-[vt]\d+)$", r[0].strip())
         if not m:
             print("bad name", r[0]); continue
-        out = ROOT / "images" / m[1] / m[2] / f"{m[3]}.png"
+        thumb = bool(re.search(r"-t\d+$", m[3]))
+        out = ROOT / "images" / m[1] / m[2] / (f"{m[3]}.jpg" if thumb else f"{m[3]}.png")
         if out.exists():
             continue
         try:
             spec = json.loads(r[1])
+            if thumb or spec.get("type") == "thumb":
+                out.parent.mkdir(parents=True, exist_ok=True)
+                await build_thumb.render(build_thumb.build(spec), str(out))
+                print("rendered thumb", out); continue
             assert 2 <= len(spec["rows"]) <= 4, "2 to 4 rows"
             out.parent.mkdir(parents=True, exist_ok=True)
             await render(build(spec), str(out))
