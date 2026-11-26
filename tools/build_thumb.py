@@ -13,6 +13,9 @@ Spec (JSON, one per option):
   "card":   {"label": "One campaign · Sept 2026", "badge": "22.0% bought",
              "a": ["6,818", "chats"], "b": ["1,497", "orders"]},             # split
   "rows":   [["WhatsApp chats", "6,818"], ["Actually bought", "1,497"]],     # point (2 rows, 2nd is green)
+  "compare": [["WhatsApp chats", 6818], ["Orders", 1497]],  # pop: real numbers drawn as bars
+  "notes":  ["price pls?", "how much?", "Booked?", "Paid?"],   # caption: 2-4 arrow labels
+  "style":  "neon" | "clean" | "pop" | "caption",   # neon uses layout; clean uses left/right; pop uses hero+card+compare; caption uses notes
   "left":   {"k": "Cost per chat", "v": "LKR 130", "s": "Looks cheap"},      # versus (red)
   "right":  {"k": "Cost per sale", "v": "LKR 592", "s": "What you really pay"},  # versus (green)
   "hero":   {"big": "22%", "label": "of chats bought"}   # used instead of the person when character is "none"
@@ -134,6 +137,119 @@ async def render(page_html, out_path):
     from PIL import Image
     Image.open(png).convert("RGB").save(out_path, "JPEG", quality=90, optimize=True)
     os.remove(png)
+
+# ---------------------------------------------------------------------------
+# More styles (Joshuwa, 27 Nov 2026: "don't make all three in one style").
+# spec["style"]: "neon" (default; layouts split/point/versus above), "clean", "pop", "caption".
+STYLE_CSS = """
+@font-face{font-family:'Poppins';font-weight:500;src:url(%(A)s/fonts/poppins-latin-500-normal.woff2)}
+@font-face{font-family:'Poppins';font-weight:600;src:url(%(A)s/fonts/poppins-latin-600-normal.woff2)}
+@font-face{font-family:'Poppins';font-weight:700;src:url(%(A)s/fonts/poppins-latin-700-normal.woff2)}
+@font-face{font-family:'Poppins';font-weight:800;src:url(%(A)s/fonts/poppins-latin-800-normal.woff2)}
+@font-face{font-family:'Poppins';font-weight:900;src:url(%(A)s/fonts/poppins-latin-900-normal.woff2)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{width:1200px;height:675px;overflow:hidden;font-family:'Poppins'}
+.c{position:relative;width:1200px;height:675px;overflow:hidden}
+.hl{display:inline-block;background:#FFD43B;color:#0b1020;padding:0 18px 2px 14px;border-radius:6px}
+.brand{position:absolute;bottom:20px;font-weight:600;font-size:15px;letter-spacing:.4px}
+"""
+
+def _char(s, style):
+    c = s.get("character", "none")
+    return f'<img src="{A}/character/{e(c)}.png" style="position:absolute;bottom:0;{style}">' if c and c != "none" else ""
+
+def build_clean(s):
+    """Light grey grid, dark type, flat yellow box, white floating cards in red/green (refs 1 and 4)."""
+    L, R = s.get("left", {}), s.get("right", {})
+    has = s.get("character", "none") not in ("", "none")
+    def card(d, col, x, y, rot):
+        return (f'<div style="position:absolute;left:{x}px;top:{y}px;width:300px;background:#fff;border-radius:22px;padding:20px 24px;'
+                f'box-shadow:0 30px 60px rgba(15,27,45,.18),0 2px 0 rgba(15,27,45,.04);transform:rotate({rot}deg)">'
+                f'<div style="font-weight:600;font-size:17px;color:#5b6478">{e(d.get("k",""))}</div>'
+                f'<div style="font-weight:900;font-size:56px;letter-spacing:-2px;color:{col};line-height:1.1">{e(d.get("v",""))}</div>'
+                f'<div style="height:6px;border-radius:3px;background:{col};opacity:.18;margin:10px 0 8px"></div>'
+                f'<div style="font-weight:600;font-size:16px;color:#5b6478">{e(d.get("s",""))}</div></div>')
+    head = "".join(f'<div style="font-size:{"64" if has else "84"}px">{e(l)}</div>' for l in s.get("headline", []))
+    body = f"""
+<div class="c" style="background:#eef1f5">
+<div style="position:absolute;inset:0;background-image:linear-gradient(rgba(15,27,45,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(15,27,45,.07) 1px,transparent 1px);background-size:56px 56px"></div>
+<div style="position:absolute;inset:0;background:radial-gradient(700px 500px at 70% 60%,rgba(255,255,255,.9),transparent 70%)"></div>
+{card(L, "#e5364b", 40 if has else 90, 300, -3)}{card(R, "#16a34a", 860 if has else 810, 330, 3)}
+{_char(s, "left:50%;transform:translateX(-50%);height:500px;filter:drop-shadow(0 24px 40px rgba(15,27,45,.35))")}
+<div style="position:absolute;left:0;right:0;top:36px;text-align:center;font-weight:900;color:#0b1020;letter-spacing:-2px;line-height:1.02">
+ {head}<span class="hl" style="font-size:{"70" if has else "92"}px;margin-top:8px">{e(s.get("highlight",""))}</span></div>
+<div class="brand" style="left:40px;color:#5b6478">skydesigners.lk/blog</div></div>"""
+    return body
+
+def build_pop(s):
+    """Saturated blue, italic heavy headline, big white dashboard card with a number and bars (refs 5, 6, 7)."""
+    h = s.get("hero") or {}
+    card = s.get("card") or {}
+    has = s.get("character", "none") not in ("", "none")
+    # bars only from real numbers: spec "compare": [["WhatsApp chats", 6818], ["Orders", 1497]] (2-4 rows, Source Log values)
+    cmp_ = s.get("compare") or []
+    mx = max([float(v) for _, v in cmp_] or [1])
+    cols = ["#1f6bff", "#16a34a", "#f59e0b", "#e5364b"]
+    bars = "".join(f'<div style="display:flex;align-items:center;gap:14px;margin-top:14px"><div style="width:170px;font-weight:600;font-size:18px;color:#5b6478">{e(str(k))}</div>'
+                   f'<div style="flex:1;height:34px;background:#eef1f6;border-radius:8px;overflow:hidden"><div style="height:100%;width:{max(4,100*float(v)/mx):.1f}%;background:{cols[i%4]};border-radius:8px"></div></div>'
+                   f'<div style="width:90px;text-align:right;font-weight:800;font-size:20px;color:#0b1020">{float(v):,.0f}</div></div>' for i, (k, v) in enumerate(cmp_))
+    head = " ".join(s.get("headline", []))
+    body = f"""
+<div class="c" style="background:linear-gradient(135deg,#0a2a8f 0%,#0b47e6 55%,#0a2a8f 100%)">
+<div style="position:absolute;left:-200px;top:-300px;width:900px;height:900px;border-radius:50%;background:radial-gradient(rgba(255,255,255,.18),transparent 60%)"></div>
+<div style="position:absolute;right:-120px;bottom:-160px;width:620px;height:620px;border-radius:50%;background:radial-gradient(rgba(37,211,102,.35),transparent 65%)"></div>
+<div style="position:absolute;left:46px;top:34px;font-weight:900;font-style:italic;color:#fff;font-size:66px;letter-spacing:-2px;line-height:1;transform:skewX(-6deg);text-shadow:0 6px 0 rgba(0,0,0,.18)">
+ {e(head)} <span class="hl" style="color:#0b1020;text-shadow:none">{e(s.get("highlight",""))}</span></div>
+<div style="position:absolute;left:{60 if has else 250}px;top:150px;width:{560 if has else 700}px;background:#fff;border-radius:26px;padding:28px 32px;box-shadow:0 40px 80px rgba(0,0,30,.45)">
+ <div style="font-weight:600;font-size:22px;color:#5b6478">{e(h.get("label") or card.get("label",""))}</div>
+ <div style="display:flex;align-items:center;gap:16px"><div style="font-weight:800;font-size:92px;letter-spacing:-3px;color:#0b1020;line-height:1.1">{e(h.get("big",""))}</div>
+ {f'<div style="background:#e7f9ee;color:#12924a;font-weight:800;font-size:22px;padding:6px 14px;border-radius:10px">{e(card.get("badge",""))}</div>' if card.get("badge") else ""}</div>
+ <div style="font-weight:600;font-size:18px;color:#8a93a6;margin-top:2px">{e(card.get("label","")) if h.get("label") else ""}</div>
+ <div style="margin-top:34px">{bars}</div></div>
+{_char(s, "right:-30px;height:600px;filter:drop-shadow(0 0 30px rgba(120,255,180,.35))")}
+<div class="brand" style="left:46px;color:rgba(255,255,255,.75)">skydesigners.lk/blog</div></div>"""
+    return body
+
+def build_caption(s):
+    """Dark wall of blurred screens, person in the middle, huge caption at the bottom with a yellow box, hand-drawn style arrows with labels (refs 2 and 3)."""
+    import random
+    rnd = random.Random(7)
+    tiles = []
+    for col in range(7):
+        for row in range(4):
+            x = col * 180 - 30 + rnd.randint(-15, 15); y = row * 175 - 40 + rnd.randint(-15, 15)
+            w, hh = rnd.choice([(150, 120), (170, 140), (140, 150)])
+            tint = rnd.choice(["#1b2235", "#232c44", "#2a2f3d", "#f2f4f8", "#1d3b2c", "#3a2330"])
+            lines = "".join(f'<i style="display:block;height:9px;margin:12px 14px 0;border-radius:5px;width:{rnd.randint(40,90)}%;background:{"rgba(0,0,0,.18)" if tint=="#f2f4f8" else "rgba(255,255,255,.18)"}"></i>' for _ in range(4))
+            tiles.append(f'<div style="position:absolute;left:{x}px;top:{y}px;width:{w}px;height:{hh}px;border-radius:14px;background:{tint};transform:rotate({rnd.uniform(-4,4):.1f}deg)">{lines}</div>')
+    notes = (s.get("notes") or [])[:4]
+    spots = [(70, 150, "M210,215 C260,200 300,230 330,260"), (70, 330, "M200,345 C250,345 300,330 340,320"),
+             (930, 170, "M930,190 C880,180 850,210 830,250"), (930, 360, "M930,370 C880,370 850,350 820,330")]
+    arrows = ""
+    for i, t in enumerate(notes):
+        x, y, d = spots[i]
+        arrows += (f'<div style="position:absolute;left:{x}px;top:{y}px;font-weight:600;font-size:30px;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.6)">{e(t)}</div>'
+                   f'<svg style="position:absolute;left:0;top:0" width="1200" height="675"><path d="{d}" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round" marker-end="url(#ah)"/></svg>')
+    head = " ".join(s.get("headline", []))
+    body = f"""
+<div class="c" style="background:#0b0e16">
+<div style="position:absolute;inset:-40px;filter:blur(2.5px);opacity:.85">{"".join(tiles)}</div>
+<div style="position:absolute;inset:0;background:radial-gradient(520px 520px at 50% 55%,rgba(11,14,22,.35),rgba(11,14,22,.7) 80%)"></div>
+<svg width="0" height="0"><defs><marker id="ah" markerWidth="10" markerHeight="10" refX="6" refY="5" orient="auto"><path d="M0,0 L8,5 L0,10" fill="none" stroke="#fff" stroke-width="2"/></marker></defs></svg>
+{_char(s, "left:50%;transform:translateX(-50%);height:600px")}
+{arrows}
+<div style="position:absolute;left:0;right:0;bottom:44px;text-align:center;font-weight:900;color:#fff;font-size:92px;letter-spacing:-3px;line-height:1;text-shadow:0 8px 30px rgba(0,0,0,.7)">
+ {e(head)} <span class="hl" style="text-shadow:none">{e(s.get("highlight",""))}</span></div>
+<div class="brand" style="right:30px;top:22px;bottom:auto;color:rgba(255,255,255,.6)">skydesigners.lk/blog</div></div>"""
+    return body
+
+_build_neon = build
+def build(s):
+    st = s.get("style", "neon")
+    if st == "neon":
+        return _build_neon(s)
+    inner = {"clean": build_clean, "pop": build_pop, "caption": build_caption}[st](s)
+    return f'<!DOCTYPE html><html><head><meta charset="utf-8"><style>{STYLE_CSS % {"A": A}}</style></head><body>{inner}</body></html>'
 
 if __name__ == "__main__":
     import asyncio, json, sys
